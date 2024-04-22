@@ -1,3 +1,14 @@
+Automatico
+1 - Diagnostico/Command Prompt
+
+awk 'NR == 334 {print "$services_menu[] = array(gettext(\"Email backup\"), \"/services_emailbackup.php\");"} {print}' head.inc > temp && mv temp head.inc
+
+Touch /usr/local/www/services_emailbackup.php
+
+2 - Copia arquivo services_emailbackup.php para /usr/local/www
+
+
+
 1 - Navegar em /usr/local/www
 2 - Editar arquivo head.inc
 3 - Ache o cabeçalho:
