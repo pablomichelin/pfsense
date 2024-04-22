@@ -1,0 +1,17 @@
+1 - Navegar em /usr/local/www
+2 - Editar arquivo head.inc
+3 - Ache o cabeçalho:
+
+// Services
+$services_menu = array();
+$services_menu[] = array(gettext("Auto Config Backup"), "/services_acb_settings.php");
+$services_menu[] = array(gettext("Captive Portal"), "/services_captiveportal.php");
+$services_menu[] = array(gettext("DNS Forwarder"), "/services_dnsmasq.php");
+$services_menu[] = array(gettext("DNS Resolver"), "/services_unbound.php");
+$services_menu[] = array(gettext("DHCP Relay"), "/services_dhcp_relay.php");
+$services_menu[] = array(gettext("DHCPv6 Relay"), "/services_dhcpv6_relay.php");
+
+Insira na ultima linha:
+$services_menu[] = array(gettext("Email backup"), "/services_emailbackup.php");
+
+4 - Copie o arquivo services_emailbackup.php dentro da pasta /usr/local/www
