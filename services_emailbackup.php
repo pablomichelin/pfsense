@@ -90,12 +90,21 @@ SCRIPT;
         }
     }
 
-    // Passo 3: Deletar arquivo original
-    unlink($filename);
-    log_message("Arquivo original excluído: $filename");
-
     // Passo 4: Gerar comando do cron
     $cron_command = "/usr/local/bin/python3.11 /root/envia_email.pyc";
+}
+
+// Deletar arquivo se solicitado
+if ($_POST && isset($_POST['delete_file'])) {
+    $file_to_delete = htmlspecialchars($_POST['delete_file']);
+    $file_path = "/root/" . basename($file_to_delete);
+
+    if (file_exists($file_path)) {
+        unlink($file_path);
+        log_message("Arquivo deletado: $file_path");
+    } else {
+        log_message("Tentativa de deletar arquivo inexistente: $file_path");
+    }
 }
 ?>
 
@@ -116,13 +125,44 @@ include("head.inc");
 
             <!-- Botão para criar arquivo, criptografar e executar -->
             <button type="submit" name="action" value="process" class="btn btn-primary">Criar e Enviar Backup</button>
-
-            <!-- Campo para exibir o comando do cron -->
-            <div class="form-group">
-                <label for="cron_command">Comando para Adicionar ao Cron:</label>
-                <textarea id="cron_command" class="form-control" rows="3" readonly><?php echo $cron_command; ?></textarea>
-            </div>
         </form>
+    </div>
+</div>
+
+<!-- Nova seção para exibir os arquivos gerados -->
+<div class="panel panel-default">
+    <div class="panel-heading"><h2 class="panel-title">Arquivos Gerados</h2></div>
+    <div class="panel-body">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Nome do Arquivo</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php
+                // Diretório onde os backups são gerados
+                $backup_dir = "/root/";
+                $files = scandir($backup_dir);
+
+                foreach ($files as $file) {
+                    // Exibir apenas arquivos .pyc
+                    if (strpos($file, '.pyc') !== false) {
+                        echo "<tr>
+                                <td>" . htmlspecialchars($file) . "</td>
+                                <td>
+                                    <form method=\"post\" style=\"display:inline;\">
+                                        <input type=\"hidden\" name=\"delete_file\" value=\"" . htmlspecialchars($file) . "\">
+                                        <button type=\"submit\" class=\"btn btn-danger btn-sm\">Deletar</button>
+                                    </form>
+                                </td>
+                              </tr>";
+                    }
+                }
+                ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
