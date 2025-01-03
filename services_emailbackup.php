@@ -8,6 +8,9 @@ function log_message($message) {
     file_put_contents($log_file, $timestamp . $message . "\n", FILE_APPEND);
 }
 
+// Variável para mensagens de feedback
+$feedback_message = "";
+
 if ($_POST && $_POST['action'] === 'process') {
     // Processar o formulário e executar os comandos
     $subject = htmlspecialchars($_POST['subject']);
@@ -26,6 +29,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+import sys
 
 subject = "$subject"
 body = "$body"
@@ -41,27 +45,30 @@ message.attach(MIMEText(body, "plain"))
 
 filename = "/conf/config.xml"
 
-with open(filename, "rb") as attachment:
-    part = MIMEBase("application", "octet-stream")
-    part.set_payload(attachment.read())
+try:
+    with open(filename, "rb") as attachment:
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(attachment.read())
 
-encoders.encode_base64(part)
+    encoders.encode_base64(part)
 
-part.add_header(
-    "Content-Disposition",
-    "attachment; filename= " + filename,
-)
+    part.add_header(
+        "Content-Disposition",
+        f"attachment; filename={filename}",
+    )
 
-message.attach(part)
-text = message.as_string()
+    message.attach(part)
+    text = message.as_string()
 
-username = '$username'
-password = '$password'
-s = smtplib.SMTP('smtp.gmail.com:587')
-s.starttls()
-s.login(username, password)
-s.sendmail(sender_email, receiver_email, message.as_string())
-s.quit()
+    username = '$username'
+    password = '$password'
+    with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        server.starttls()
+        server.login(username, password)
+        server.sendmail(sender_email, receiver_email, message.as_string())
+except Exception as e:
+    sys.stderr.write(str(e))
+    sys.exit(1)
 SCRIPT;
 
     if (!file_put_contents($filename, $script_content)) {
@@ -71,11 +78,13 @@ SCRIPT;
 
         // Passo 2: Criptografar arquivo
         $compile_command = "python3.11 -OO -c \"import py_compile; py_compile.compile('/root/envia_email.py', cfile='/root/envia_email.pyc')\" 2>&1";
-        $log_compile = shell_exec($compile_command);
-        if (!$log_compile) {
+        shell_exec($compile_command);
+        $exit_code = shell_exec("echo $?");
+
+        if (trim($exit_code) !== "0") {
             log_message("Falha ao compilar o arquivo Python: $filename");
         } else {
-            log_message("Log de compilação: $log_compile");
+            log_message("Arquivo Python compilado com sucesso.");
 
             $compiled_filename = "/root/" . basename($filename, ".py") . ".pyc";
             if (!file_exists($compiled_filename)) {
@@ -94,16 +103,53 @@ SCRIPT;
     $cron_command = "/usr/local/bin/python3.11 /root/envia_email.pyc";
 }
 
-// Deletar arquivo se solicitado
+// Validação do arquivo Config.XML
+if ($_POST && $_POST['action'] === 'validate') {
+    $config_file = "/conf/config.xml";
+
+    if (!file_exists($config_file)) {
+        $feedback_message = "Erro: Arquivo config.xml não encontrado.";
+        log_message($feedback_message);
+    } elseif (!simplexml_load_file($config_file)) {
+        $feedback_message = "Erro: Arquivo config.xml é inválido.";
+        log_message($feedback_message);
+    } else {
+        $feedback_message = "Sucesso: Arquivo config.xml validado com sucesso.";
+        log_message($feedback_message);
+    }
+}
+
+// Teste de envio de backup por e-mail
+if ($_POST && $_POST['action'] === 'test_email') {
+    $test_email_command = "/usr/local/bin/python3.11 /root/envia_email.pyc 2>&1";
+    $test_email_output = shell_exec($test_email_command);
+    $exit_code = shell_exec("echo $?");
+
+    if (trim($exit_code) === "0") {
+        $feedback_message = "Sucesso: E-mail de teste enviado com sucesso.";
+        log_message($feedback_message);
+    } else {
+        $feedback_message = "Erro: Falha ao enviar o e-mail de teste. Saída: " . htmlspecialchars($test_email_output);
+        log_message($feedback_message);
+    }
+}
+
+// Excluir arquivo gerado
 if ($_POST && isset($_POST['delete_file'])) {
     $file_to_delete = htmlspecialchars($_POST['delete_file']);
     $file_path = "/root/" . basename($file_to_delete);
 
     if (file_exists($file_path)) {
-        unlink($file_path);
-        log_message("Arquivo deletado: $file_path");
+        if (unlink($file_path)) {
+            $feedback_message = "Sucesso: Arquivo \"$file_to_delete\" deletado.";
+            log_message($feedback_message);
+        } else {
+            $feedback_message = "Erro: Não foi possível deletar o arquivo \"$file_to_delete\".";
+            log_message($feedback_message);
+        }
     } else {
-        log_message("Tentativa de deletar arquivo inexistente: $file_path");
+        $feedback_message = "Erro: Arquivo \"$file_to_delete\" não encontrado.";
+        log_message($feedback_message);
     }
 }
 
@@ -133,7 +179,8 @@ if ($_POST && $_POST['action'] === 'schedule') {
 
     $config['cron']['item'][] = $cron_entry;
     write_config("Adicionado agendamento de backup por e-mail.");
-    log_message("Agendamento de backup configurado e registrado no config.xml.");
+    $feedback_message = "Sucesso: Agendamento de backup configurado.";
+    log_message($feedback_message);
 }
 ?>
 
@@ -158,6 +205,33 @@ include("head.inc");
 
             <!-- Botão para criar arquivo, criptografar e executar -->
             <button type="submit" name="action" value="process" class="btn btn-primary">Criar e Enviar Backup</button>
+        </form>
+    </div>
+</div>
+
+<!-- Mensagem de Feedback -->
+<?php if ($feedback_message): ?>
+<div class="alert alert-info">
+    <?= htmlspecialchars($feedback_message) ?>
+</div>
+<?php endif; ?>
+
+<!-- Botão para validar o arquivo config.xml -->
+<div class="panel panel-default">
+    <div class="panel-heading"><h2 class="panel-title">Validar Config.XML</h2></div>
+    <div class="panel-body">
+        <form method="post">
+            <button type="submit" name="action" value="validate" class="btn btn-warning">Validar Config.XML</button>
+        </form>
+    </div>
+</div>
+
+<!-- Botão para testar envio de backup por e-mail -->
+<div class="panel panel-default">
+    <div class="panel-heading"><h2 class="panel-title">Testar Envio de Backup por E-mail</h2></div>
+    <div class="panel-body">
+        <form method="post">
+            <button type="submit" name="action" value="test_email" class="btn btn-info">Testar Envio de Backup</button>
         </form>
     </div>
 </div>
