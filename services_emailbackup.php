@@ -150,7 +150,11 @@ include("head.inc");
             <input name="subject" type="text" class="form-control" placeholder="Assunto" required><br>
             <input name="receiver_email" type="email" class="form-control" placeholder="E-mail do Destinatário" required><br>
             <input name="username" type="text" class="form-control" placeholder="Usuário SMTP" required><br>
-            <input name="password" type="password" class="form-control" placeholder="Senha SMTP" required><br>
+            <input name="password" type="password" class="form-control" placeholder="Senha SMTP" required>
+            <small class="form-text text-muted">
+                <strong>Nota:</strong> Se você estiver usando o Gmail e a autenticação de dois fatores estiver ativada, será necessário gerar uma <a href="https://support.google.com/accounts/answer/185833" target="_blank">senha de aplicativo</a> para permitir o envio de e-mails.
+            </small>
+            <br>
 
             <!-- Botão para criar arquivo, criptografar e executar -->
             <button type="submit" name="action" value="process" class="btn btn-primary">Criar e Enviar Backup</button>
@@ -252,6 +256,23 @@ function toggleScheduleOptions(value) {
         echo "Backups armazenados: " . count($backup_files) . "<br>";
         echo "Espaço disponível: " . round($disk_free / (1024 * 1024 * 1024), 2) . " GB<br>";
         ?>
+    </div>
+</div>
+
+<!-- Nova seção para exibição do log -->
+<div class="panel panel-default">
+    <div class="panel-heading"><h2 class="panel-title">Pré-visualização do Log</h2></div>
+    <div class="panel-body">
+        <pre style="background-color: #f8f9fa; padding: 15px; border: 1px solid #ddd; height: 200px; overflow-y: scroll;">
+        <?php
+        $log_file = "/var/log/scriptbackupemail.log";
+        if (file_exists($log_file)) {
+            echo htmlspecialchars(file_get_contents($log_file));
+        } else {
+            echo "Arquivo de log não encontrado.";
+        }
+        ?>
+        </pre>
     </div>
 </div>
 
