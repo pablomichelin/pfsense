@@ -106,6 +106,35 @@ if ($_POST && isset($_POST['delete_file'])) {
         log_message("Tentativa de deletar arquivo inexistente: $file_path");
     }
 }
+
+// Configurar agendamento de backup
+if ($_POST && $_POST['action'] === 'schedule') {
+    $schedule_time = htmlspecialchars($_POST['schedule_time']);
+    $hour = htmlspecialchars($_POST['hour'] ?? "*");
+    $minute = htmlspecialchars($_POST['minute'] ?? "0");
+    $day = htmlspecialchars($_POST['day'] ?? "*");
+    $month = htmlspecialchars($_POST['month'] ?? "*");
+    $weekday = htmlspecialchars($_POST['weekday'] ?? "*");
+
+    // Adicionar entrada ao config.xml do pfSense
+    $cron_entry = [
+        'minute' => $minute,
+        'hour' => $hour,
+        'mday' => $day,
+        'month' => $month,
+        'wday' => $weekday,
+        'who' => 'root',
+        'command' => "/usr/local/bin/python3.11 /root/envia_email.pyc",
+    ];
+
+    if (!is_array($config['cron']['item'])) {
+        $config['cron']['item'] = [];
+    }
+
+    $config['cron']['item'][] = $cron_entry;
+    write_config("Adicionado agendamento de backup por e-mail.");
+    log_message("Agendamento de backup configurado e registrado no config.xml.");
+}
 ?>
 
 <?php
@@ -163,6 +192,66 @@ include("head.inc");
                 ?>
             </tbody>
         </table>
+    </div>
+</div>
+
+<!-- Nova seção para configurar agendamento -->
+<div class="panel panel-default">
+    <div class="panel-heading"><h2 class="panel-title">Agendamento de Backup</h2></div>
+    <div class="panel-body">
+        <form method="post">
+            <div class="form-group">
+                <label for="schedule_time">Agendar Backup Automático:</label>
+                <select name="schedule_time" class="form-control" onchange="toggleScheduleOptions(this.value)">
+                    <option value="hourly">De hora em hora</option>
+                    <option value="daily">Diariamente</option>
+                    <option value="weekly">Semanalmente</option>
+                    <option value="monthly">Mensalmente</option>
+                </select>
+            </div>
+
+            <div id="schedule_options" style="display:none;">
+                <div class="form-group">
+                    <label for="minute">Minuto:</label>
+                    <input name="minute" type="number" class="form-control" placeholder="0-59">
+                </div>
+                <div class="form-group">
+                    <label for="hour">Hora:</label>
+                    <input name="hour" type="number" class="form-control" placeholder="0-23">
+                </div>
+                <div class="form-group" id="day_option" style="display:none;">
+                    <label for="day">Dia:</label>
+                    <input name="day" type="number" class="form-control" placeholder="1-31">
+                </div>
+                <div class="form-group" id="weekday_option" style="display:none;">
+                    <label for="weekday">Dia da Semana (0-6, onde 0 é domingo):</label>
+                    <input name="weekday" type="number" class="form-control" placeholder="0-6">
+                </div>
+            </div>
+
+            <button type="submit" name="action" value="schedule" class="btn btn-success">Salvar Agendamento</button>
+        </form>
+    </div>
+</div>
+
+<script>
+function toggleScheduleOptions(value) {
+    document.getElementById('schedule_options').style.display = 'block';
+    document.getElementById('day_option').style.display = (value === 'daily' || value === 'monthly') ? 'block' : 'none';
+    document.getElementById('weekday_option').style.display = (value === 'weekly') ? 'block' : 'none';
+}
+</script>
+
+<!-- Nova seção para estatísticas -->
+<div class="panel panel-default">
+    <div class="panel-heading"><h2 class="panel-title">Estatísticas de Uso</h2></div>
+    <div class="panel-body">
+        <?php
+        $backup_files = glob("/root/*.pyc");
+        $disk_free = disk_free_space("/root");
+        echo "Backups armazenados: " . count($backup_files) . "<br>";
+        echo "Espaço disponível: " . round($disk_free / (1024 * 1024 * 1024), 2) . " GB<br>";
+        ?>
     </div>
 </div>
 
