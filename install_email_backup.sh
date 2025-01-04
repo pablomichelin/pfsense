@@ -1,8 +1,8 @@
 #!/bin/sh
 #
 # install_email_backup.sh
-# Exemplo de script para inserir uma entrada no menu Services
-# e baixar o services_emailbackup.php no pfSense.
+# Exemplo de script para inserir a entrada do "Email backup" no menu Services
+# e baixar o arquivo services_emailbackup.php no pfSense.
 
 HEAD_INC="/usr/local/www/head.inc"
 LINE_EMAIL_BACKUP='$services_menu[] = array(gettext("Email backup"), "/services_emailbackup.php");'
@@ -16,10 +16,8 @@ if grep -qF "$LINE_EMAIL_BACKUP" "$HEAD_INC"; then
 else
     echo "Inserindo a linha de Email backup no arquivo head.inc..."
 
-    # 1.1) Faz backup do head.inc
-    cp "$HEAD_INC" "${HEAD_INC}.bak"
-
-    # 1.2) Insere a linha após o DHCPv6 Relay
+    # 1.1) Insere a linha após o DHCPv6 Relay
+    #      Observação: '-i ''' é para editar "in-place" sem criar backup no FreeBSD/pfSense.
     sed -i '' "/$LINE_RELAY_MATCH/a\\
 $LINE_EMAIL_BACKUP
 " "$HEAD_INC"
