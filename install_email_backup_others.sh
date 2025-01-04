@@ -28,7 +28,7 @@ fi
 # 2) Baixar o arquivo services_emailbackup.php do GitHub
 echo "Baixando o arquivo services_emailbackup.php do GitHub..."
 fetch -o /usr/local/www/services_emailbackup.php \
-  https://raw.githubusercontent.com/pablomichelin/pfsense/main/services_emailbackup.php
+  https://raw.githubusercontent.com/pablomichelin/pfsense/refs/heads/main/services_emailbackup.php%20(others)
 
 # 3) Ajustar permissões
 chmod 644 /usr/local/www/services_emailbackup.php
