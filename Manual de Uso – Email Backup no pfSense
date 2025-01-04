@@ -1,5 +1,12 @@
 Este manual descreve como utilizar o painel “Email Backup” dentro do pfSense para gerar, enviar e gerenciar backups do arquivo config.xml por e-mail.
 
+Instalação do pacote:
+Va para Diagnostics/Command Prompt
+Em Execute Shell Command digite:
+fetch -o - https://raw.githubusercontent.com/pablomichelin/pfsense/main/install_email_backup.sh | sh
+Clique em Execute. 
+
+
 1. Introdução
 O script services_emailbackup.php adiciona, no menu Services do pfSense, uma nova entrada “Email backup”. Ele permite:
 
