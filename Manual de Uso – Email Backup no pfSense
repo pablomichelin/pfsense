@@ -1,0 +1,115 @@
+Este manual descreve como utilizar o painel “Email Backup” dentro do pfSense para gerar, enviar e gerenciar backups do arquivo config.xml por e-mail.
+
+1. Introdução
+O script services_emailbackup.php adiciona, no menu Services do pfSense, uma nova entrada “Email backup”. Ele permite:
+
+Enviar o config.xml por e-mail, anexado, para qualquer provedor SMTP (Gmail, Outlook, servidores internos, etc.).
+Validar a integridade do arquivo config.xml.
+Testar envio de e-mail.
+Agendar backups automáticos via cron.
+Gerenciar arquivos de backup compilados (arquivos .pyc).
+Exibir e limpar logs de execução.
+2. Acessando o painel “Email Backup”
+Após a instalação do script, acesse a interface web do pfSense.
+No topo, clique em Services.
+Localize e clique em Email backup.
+Você será direcionado(a) para a página de configuração do backup por e-mail.
+3. Criando e Enviando Backup por E-mail
+Na primeira seção, “Configuração de Backup por E-mail”, você encontrará campos para configurar o envio. Siga os passos:
+
+Assunto (Subject): Insira o assunto do e-mail que receberá o backup.
+E-mail do Destinatário (Receiver Email): Informe o endereço de destino para onde o backup será enviado.
+Usuário SMTP (Username): Informe o usuário da conta SMTP do provedor (por exemplo, seu e-mail do Gmail, Outlook ou outro).
+Senha SMTP (Password): Informe a senha (ou senha de aplicativo) para acesso ao servidor SMTP.
+SMTP Host: Endereço do servidor SMTP (por exemplo, smtp.gmail.com, smtp.outlook.com ou mail.seu-dominio.com).
+SMTP Port: Porta utilizada pelo servidor SMTP (comum: 587 para STARTTLS, 465 para SSL, 25 ou outra conforme seu provedor).
+Criptografia: Escolha entre none (sem criptografia), ssl (SSL/TLS) ou starttls (porta 587 normalmente).
+Exemplo para Gmail: smtp.gmail.com, porta 587, criptografia starttls.
+Exemplo para Outlook/Office365: smtp.office365.com, porta 587, criptografia starttls.
+Depois de preencher, clique em “Criar e Enviar Backup”. O script irá:
+
+Criar um arquivo Python (envia_email.py) com suas credenciais.
+Compilá-lo para envia_email.pyc.
+Excluir o arquivo .py original para não deixar a senha em texto puro.
+Enviar o config.xml para o e-mail escolhido, caso tudo ocorra bem.
+Se tudo der certo, será exibida uma mensagem de sucesso. Em caso de falha, verifique o log para maiores detalhes (ver seção Logs).
+
+4. Validar o Arquivo config.xml
+A segunda seção do painel, “Validar Config.XML”, executa uma checagem simples para garantir que o /conf/config.xml seja válido como XML:
+
+Clique em Validar Config.XML.
+Se o arquivo for encontrado e estiver bem-formado, uma mensagem de sucesso será exibida.
+Caso haja algum problema, verifique se o config.xml realmente existe em /conf/ ou se há problemas de formatação.
+5. Testar Envio de Backup por E-mail
+A terceira seção, “Testar Envio de Backup por E-mail”, executa o arquivo compilado .pyc para enviar novamente o config.xml, sem recriar o script. É útil para verificar se ainda funciona depois de mudanças no servidor SMTP ou nas credenciais.
+
+Clique em Testar Envio de Backup.
+Se o arquivo .pyc existir em /root/ e as credenciais estiverem corretas, você deve receber o e-mail de teste.
+Caso contrário, uma mensagem de erro será exibida com o motivo (verifique no log a saída detalhada).
+6. Gerenciamento de Arquivos Gerados (.pyc)
+Mais abaixo, em “Arquivos Gerados”, o script lista os arquivos .pyc presentes em /root/. Cada compilação gera (ou substitui) um arquivo principal, normalmente envia_email.pyc.
+
+Para deletar um arquivo gerado, clique em “Deletar” ao lado do nome do arquivo.
+O script apagará o arquivo do sistema e exibirá uma mensagem de confirmação.
+7. Agendamento de Backup (Cron)
+Na seção “Agendamento de Backup”, você pode configurar o cron do pfSense para chamar o script .pyc automaticamente em intervalos regulares. Você tem 4 opções básicas:
+
+De hora em hora: executa toda hora no minuto 0.
+Diariamente: executa todo dia, no horário que você especificar.
+Semanalmente: executa no dia da semana e hora selecionados.
+Mensalmente: executa no dia do mês e hora selecionados.
+Como configurar
+Selecione a frequência (Hourly, Daily, Weekly, Monthly).
+Preencha os campos (minuto, hora, dia, etc.) conforme o tipo selecionado.
+Clique em “Salvar Agendamento”.
+O script adicionará uma nova entrada em System > Advanced > Cron (gerenciado pelo config.xml do pfSense), chamando /usr/local/bin/python3.11 /root/envia_email.pyc no horário configurado.
+
+8. Estatísticas de Uso
+Na seção “Estatísticas de Uso”, o script exibe:
+
+Quantos arquivos .pyc existem em /root/.
+Quanto espaço livre (em GB) ainda está disponível.
+Essas informações ajudam a monitorar se os backups gerados (ou outros arquivos) podem estar consumindo muito espaço no seu pfSense.
+
+9. Pré-visualização do Log
+O script mantém um log em /var/log/scriptbackupemail.log. Na seção “Pré-visualização do Log”, você pode ver as últimas mensagens de execução, incluindo:
+
+Criação e compilação do script Python.
+Envio bem-sucedido de e-mail ou mensagem de erro.
+Ações de deleção de arquivos .pyc.
+Ações de validação do config.xml.
+Limpeza de log.
+Dica: Se o log estiver muito grande, utilize a rolagem vertical para consultar as últimas entradas.
+
+10. Limpar Log
+Por fim, na seção “Gerenciamento de Log”, há um botão “Limpar Log”. Ao clicar:
+
+O script pergunta se você tem certeza.
+Se confirmar, o arquivo /var/log/scriptbackupemail.log é zerado (substituído por um arquivo vazio).
+Uma nova mensagem de log é adicionada registrando que o usuário limpou o log manualmente.
+Use esse recurso para evitar que o log cresça indefinidamente.
+
+11. Boas Práticas e Observações Finais
+Senhas de Aplicativo: Se estiver usando Gmail ou outro provedor com autenticação em dois fatores, gere uma senha de aplicativo (App Password) para uso no campo “Senha SMTP”.
+Permissões: O script .pyc em /root/ e o log em /var/log/ devem ter permissões adequadas para leitura/escrita. Em geral, o usuário root consegue gerenciar ambos sem problemas.
+Verificação: Depois de qualquer mudança de credencial SMTP, sempre faça o teste de envio para garantir que tudo está funcionando.
+Agendamento (Cron): Caso os backups automáticos não cheguem, verifique se o cron do pfSense está ativo e se há algum erro no log.
+Atualizações: Se você atualizar seu pfSense, confirme se ainda possui o python3.11 instalado ou se algo mudou no caminho /usr/local/bin/python3.11. Ajuste o script se necessário.
+12. Solução de Problemas (Troubleshooting)
+Não recebo o e-mail:
+
+Verifique se as portas necessárias (25, 465, 587) não estão bloqueadas.
+Confirme a criptografia e a porta corretas para seu provedor SMTP.
+Olhe o log (/var/log/scriptbackupemail.log) para ver se há falha de autenticação ou erro de conexão.
+Agendamento não roda:
+
+Vá em Diagnostics > Command Prompt e rode crontab -l para checar se o cron foi inserido.
+Verifique se o horário configurado está correto.
+Caso ainda não funcione, revise o log de cron do pfSense ou tente recriar o agendamento.
+Log não aparece:
+
+Verifique se o arquivo /var/log/scriptbackupemail.log existe.
+Teste enviando e-mail ou validando o config.xml para gerar novas mensagens.
+Confirme se você está executando o script com privilégios adequados.
+Fim do Manual
+Com esses passos, você terá backup por e-mail do config.xml configurado, testado e agendado no seu pfSense. Aproveite para manter seu dispositivo sempre seguro, com backups frequentes e devidamente armazenados!
