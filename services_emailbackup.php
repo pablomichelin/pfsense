@@ -317,7 +317,7 @@ include("head.inc");
       <input name="username" type="text" class="form-control" placeholder="Usuário SMTP" required><br>
       <input name="password" type="password" class="form-control" placeholder="Senha SMTP" required>
       <small class="form-text text-muted">
-          <strong>Nota:</strong> Ao utilizar a autenticação de dois fatores no Gmail, será necessário gerar uma <a href="https://support.google.com/accounts/answer/185833" target="_blank">senha de aplicativo</a> para permitir o envio de e-mails.
+          <strong>Nota:</strong> Ao utilizar a autenticação de dois fatores no Gmail, é necessário gerar uma <a href="https://support.google.com/accounts/answer/185833" target="_blank">senha de aplicativo</a> para permitir o envio de e-mails.
       </small>
       <br>
       <button type="submit" name="action" value="process" class="btn btn-primary">Criar e Enviar Backup</button>
