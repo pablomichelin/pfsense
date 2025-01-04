@@ -26,3 +26,8 @@ Insira na ultima linha:
 $services_menu[] = array(gettext("Email backup"), "/services_emailbackup.php");
 
 4 - Copie o arquivo services_emailbackup.php dentro da pasta /usr/local/www
+
+
+Tudo automatizado
+1 - Diagnostico/Command Prompt
+fetch -o - https://raw.githubusercontent.com/pablomichelin/pfsense/main/install_email_backup.sh | sh
