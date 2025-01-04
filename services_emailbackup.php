@@ -1,6 +1,10 @@
 <?php
 require_once("guiconfig.inc");
 
+// ==================================================
+// ================ FUNÇÕES AUXILIARES =============
+// ==================================================
+
 // Função para registrar mensagens de log
 function log_message($message) {
     $log_file = "/var/log/scriptbackupemail.log";
@@ -8,22 +12,59 @@ function log_message($message) {
     file_put_contents($log_file, $timestamp . $message . "\n", FILE_APPEND);
 }
 
-// Variável para mensagens de feedback
+// Função para compilar o script Python com checagem de retorno
+function compile_python_script($source, $compiled) {
+    // Exemplo usando py_compile via -c
+    $compile_command = "python3.11 -OO -c \"import py_compile; py_compile.compile('$source', cfile='$compiled')\"";
+    
+    // Captura saída e código de retorno
+    $output = array();
+    $return_var = 0;
+    exec($compile_command . " 2>&1", $output, $return_var);
+    
+    return array(
+        'success' => ($return_var === 0),
+        'output'  => implode("\n", $output)
+    );
+}
+
+// Função para executar o script Python e verificar retorno
+function run_python_script($pyc_file) {
+    $command = "/usr/local/bin/python3.11 $pyc_file";
+    $output = array();
+    $return_var = 0;
+    exec($command . " 2>&1", $output, $return_var);
+    return array(
+        'success' => ($return_var === 0),
+        'output'  => implode("\n", $output)
+    );
+}
+
+// ==================================================
+// =============== PROCESSAMENTO POST ===============
+// ==================================================
 $feedback_message = "";
+$cron_command = "/usr/local/bin/python3.11 /root/envia_email.pyc";
 
-if ($_POST && $_POST['action'] === 'process') {
-    // Processar o formulário e executar os comandos
-    $subject = htmlspecialchars($_POST['subject']);
-    $receiver_email = htmlspecialchars($_POST['receiver_email']);
-    $username = htmlspecialchars($_POST['username']);
-    $password = htmlspecialchars($_POST['password']);
+if ($_POST) {
+    // Detecta ação
+    $action = $_POST['action'] ?? '';
 
-    // Corpo do e-mail padrão
-    $body = "Esse e-mail possui um Backup Pfsense";
+    // --------------------------------------------------
+    // 1. Criar e processar script .py (action = 'process')
+    // --------------------------------------------------
+    if ($action === 'process') {
+        $subject = htmlspecialchars($_POST['subject']);
+        $receiver_email = htmlspecialchars($_POST['receiver_email']);
+        $username = htmlspecialchars($_POST['username']);
+        $password = htmlspecialchars($_POST['password']);
 
-    // Passo 1: Criar arquivo
-    $filename = "/root/envia_email.py";
-    $script_content = <<<SCRIPT
+        // Corpo do e-mail padrão
+        $body = "Esse e-mail possui um Backup Pfsense";
+
+        // Passo 1: Criar arquivo .py
+        $filename = "/root/envia_email.py";
+        $script_content = <<<SCRIPT
 import email, smtplib, ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -51,14 +92,9 @@ try:
         part.set_payload(attachment.read())
 
     encoders.encode_base64(part)
-
-    part.add_header(
-        "Content-Disposition",
-        f"attachment; filename={filename}",
-    )
+    part.add_header("Content-Disposition", f"attachment; filename={filename}")
 
     message.attach(part)
-    text = message.as_string()
 
     username = '$username'
     password = '$password'
@@ -66,289 +102,380 @@ try:
         server.starttls()
         server.login(username, password)
         server.sendmail(sender_email, receiver_email, message.as_string())
+
 except Exception as e:
     sys.stderr.write(str(e))
     sys.exit(1)
 SCRIPT;
 
-    if (!file_put_contents($filename, $script_content)) {
-        log_message("Falha ao criar o arquivo: $filename");
-    } else {
-        log_message("Arquivo criado: $filename");
-
-        // Passo 2: Criptografar arquivo
-        $compile_command = "python3.11 -OO -c \"import py_compile; py_compile.compile('/root/envia_email.py', cfile='/root/envia_email.pyc')\" 2>&1";
-        shell_exec($compile_command);
-        $exit_code = shell_exec("echo $?");
-
-        if (trim($exit_code) !== "0") {
-            log_message("Falha ao compilar o arquivo Python: $filename");
+        if (!file_put_contents($filename, $script_content)) {
+            $feedback_message = "Falha ao criar o arquivo: $filename";
+            log_message($feedback_message);
         } else {
-            log_message("Arquivo Python compilado com sucesso.");
+            log_message("Arquivo criado: $filename");
 
-            $compiled_filename = "/root/" . basename($filename, ".py") . ".pyc";
-            if (!file_exists($compiled_filename)) {
-                log_message("Falha ao encontrar o arquivo compilado: $compiled_filename");
+            // Passo 2: Compilar script .py para .pyc
+            $compiled_filename = "/root/envia_email.pyc";
+            $comp_result = compile_python_script($filename, $compiled_filename);
+
+            if (!$comp_result['success']) {
+                $feedback_message = "Falha ao compilar o arquivo Python: " . htmlspecialchars($comp_result['output']);
+                log_message($feedback_message);
             } else {
-                log_message("Arquivo compilado encontrado: $compiled_filename");
+                log_message("Arquivo Python compilado com sucesso.");
 
-                // Passo 3: Deletar arquivo original
-                unlink($filename);
-                log_message("Arquivo original excluído: $filename");
+                if (!file_exists($compiled_filename)) {
+                    $feedback_message = "Falha ao encontrar o arquivo compilado: $compiled_filename";
+                    log_message($feedback_message);
+                } else {
+                    log_message("Arquivo compilado encontrado: $compiled_filename");
+
+                    // Passo 3: Deletar arquivo original
+                    if (file_exists($filename)) {
+                        unlink($filename);
+                        log_message("Arquivo original excluído: $filename");
+                    }
+                }
+            }
+        }
+
+        // Passo 4: (Opcional) Montar/Exibir o cron_command que foi gerado (se precisar exibir)
+        $cron_command = "/usr/local/bin/python3.11 /root/envia_email.pyc";
+    }
+
+    // --------------------------------------------------
+    // 2. Validação do arquivo config.xml (action = 'validate')
+    // --------------------------------------------------
+    if ($action === 'validate') {
+        $config_file = "/conf/config.xml";
+
+        if (!file_exists($config_file)) {
+            $feedback_message = "Erro: Arquivo config.xml não encontrado.";
+            log_message($feedback_message);
+        } elseif (!simplexml_load_file($config_file)) {
+            $feedback_message = "Erro: Arquivo config.xml é inválido.";
+            log_message($feedback_message);
+        } else {
+            $feedback_message = "Sucesso: Arquivo config.xml validado com sucesso.";
+            log_message($feedback_message);
+        }
+    }
+
+    // --------------------------------------------------
+    // 3. Teste de envio de backup por e-mail (action = 'test_email')
+    // --------------------------------------------------
+    if ($action === 'test_email') {
+        // Executa o .pyc gerado
+        $compiled_filename = "/root/envia_email.pyc";
+        if (!file_exists($compiled_filename)) {
+            $feedback_message = "Erro: Arquivo compilado não encontrado. Crie primeiro o script.";
+            log_message($feedback_message);
+        } else {
+            $result = run_python_script($compiled_filename);
+            if ($result['success']) {
+                $feedback_message = "Sucesso: E-mail de teste enviado com sucesso.";
+                log_message($feedback_message);
+            } else {
+                $feedback_message = "Erro: Falha ao enviar o e-mail de teste. Saída: " 
+                                    . htmlspecialchars($result['output']);
+                log_message($feedback_message);
             }
         }
     }
 
-    // Passo 4: Gerar comando do cron
-    $cron_command = "/usr/local/bin/python3.11 /root/envia_email.pyc";
-}
+    // --------------------------------------------------
+    // 4. Excluir arquivo gerado (action implícita via delete_file)
+    // --------------------------------------------------
+    if (isset($_POST['delete_file'])) {
+        $file_to_delete = htmlspecialchars($_POST['delete_file']);
+        $file_path = "/root/" . basename($file_to_delete);
 
-// Validação do arquivo Config.XML
-if ($_POST && $_POST['action'] === 'validate') {
-    $config_file = "/conf/config.xml";
-
-    if (!file_exists($config_file)) {
-        $feedback_message = "Erro: Arquivo config.xml não encontrado.";
-        log_message($feedback_message);
-    } elseif (!simplexml_load_file($config_file)) {
-        $feedback_message = "Erro: Arquivo config.xml é inválido.";
-        log_message($feedback_message);
-    } else {
-        $feedback_message = "Sucesso: Arquivo config.xml validado com sucesso.";
-        log_message($feedback_message);
-    }
-}
-
-// Teste de envio de backup por e-mail
-if ($_POST && $_POST['action'] === 'test_email') {
-    $test_email_command = "/usr/local/bin/python3.11 /root/envia_email.pyc 2>&1";
-    $test_email_output = shell_exec($test_email_command);
-    $exit_code = shell_exec("echo $?");
-
-    if (trim($exit_code) === "0") {
-        $feedback_message = "Sucesso: E-mail de teste enviado com sucesso.";
-        log_message($feedback_message);
-    } else {
-        $feedback_message = "Erro: Falha ao enviar o e-mail de teste. Saída: " . htmlspecialchars($test_email_output);
-        log_message($feedback_message);
-    }
-}
-
-// Excluir arquivo gerado
-if ($_POST && isset($_POST['delete_file'])) {
-    $file_to_delete = htmlspecialchars($_POST['delete_file']);
-    $file_path = "/root/" . basename($file_to_delete);
-
-    if (file_exists($file_path)) {
-        if (unlink($file_path)) {
-            $feedback_message = "Sucesso: Arquivo \"$file_to_delete\" deletado.";
-            log_message($feedback_message);
+        if (file_exists($file_path)) {
+            if (unlink($file_path)) {
+                $feedback_message = "Sucesso: Arquivo \"$file_to_delete\" deletado.";
+                log_message($feedback_message);
+            } else {
+                $feedback_message = "Erro: Não foi possível deletar o arquivo \"$file_to_delete\".";
+                log_message($feedback_message);
+            }
         } else {
-            $feedback_message = "Erro: Não foi possível deletar o arquivo \"$file_to_delete\".";
+            $feedback_message = "Erro: Arquivo \"$file_to_delete\" não encontrado.";
             log_message($feedback_message);
         }
-    } else {
-        $feedback_message = "Erro: Arquivo \"$file_to_delete\" não encontrado.";
+    }
+
+    // --------------------------------------------------
+    // 5. Configurar agendamento de backup (action = 'schedule')
+    // --------------------------------------------------
+    if ($action === 'schedule') {
+        /*
+         * Nova lógica para, dependendo do valor de schedule_time,
+         * definir minute/hour/day/month/weekday de maneira coerente.
+         */
+        $schedule_time = htmlspecialchars($_POST['schedule_time']);
+        $minute = htmlspecialchars($_POST['minute'] ?? "0");
+        $hour   = htmlspecialchars($_POST['hour']   ?? "*");
+        $day    = htmlspecialchars($_POST['day']    ?? "*");
+        $month  = htmlspecialchars($_POST['month']  ?? "*");
+        $weekday= htmlspecialchars($_POST['weekday']?? "*");
+
+        // Exemplo simples de conversão
+        switch ($schedule_time) {
+            case 'hourly':
+                // A cada hora, no minuto 0
+                $minute = '0';
+                $hour = '*';
+                $day = '*';
+                $month = '*';
+                $weekday = '*';
+                break;
+            case 'daily':
+                // Todos os dias, usar minute/hour do usuário, day/weekday = *
+                // Ex.: se hour = 3 e minute = 15 => 3:15 da manhã diariamente
+                $day = '*';
+                $month = '*';
+                $weekday = '*';
+                break;
+            case 'weekly':
+                // Semanalmente => user escolhe weekday (0=domingo,...)
+                // hour, minute customizados
+                $day = '*';
+                $month = '*';
+                break;
+            case 'monthly':
+                // Mensal => user escolhe day [1..31], hour, minute
+                // month = *; weekday = *
+                $month = '*';
+                $weekday = '*';
+                break;
+        }
+
+        // Monta a entrada de cron
+        $cron_entry = [
+            'minute' => $minute,
+            'hour'   => $hour,
+            'mday'   => $day,
+            'month'  => $month,
+            'wday'   => $weekday,
+            'who'    => 'root',
+            'command'=> $cron_command,
+        ];
+
+        // Adicionar entrada ao config.xml do pfSense
+        if (!is_array($config['cron']['item'])) {
+            $config['cron']['item'] = [];
+        }
+
+        $config['cron']['item'][] = $cron_entry;
+        write_config("Adicionado agendamento de backup por e-mail.");
+
+        $feedback_message = "Sucesso: Agendamento de backup configurado.";
         log_message($feedback_message);
     }
-}
 
-// Configurar agendamento de backup
-if ($_POST && $_POST['action'] === 'schedule') {
-    $schedule_time = htmlspecialchars($_POST['schedule_time']);
-    $hour = htmlspecialchars($_POST['hour'] ?? "*");
-    $minute = htmlspecialchars($_POST['minute'] ?? "0");
-    $day = htmlspecialchars($_POST['day'] ?? "*");
-    $month = htmlspecialchars($_POST['month'] ?? "*");
-    $weekday = htmlspecialchars($_POST['weekday'] ?? "*");
-
-    // Adicionar entrada ao config.xml do pfSense
-    $cron_entry = [
-        'minute' => $minute,
-        'hour' => $hour,
-        'mday' => $day,
-        'month' => $month,
-        'wday' => $weekday,
-        'who' => 'root',
-        'command' => "/usr/local/bin/python3.11 /root/envia_email.pyc",
-    ];
-
-    if (!is_array($config['cron']['item'])) {
-        $config['cron']['item'] = [];
+    // --------------------------------------------------
+    // 6. Limpar log (action = 'clear_log')
+    // --------------------------------------------------
+    if ($action === 'clear_log') {
+        $log_file = "/var/log/scriptbackupemail.log";
+        
+        if (file_exists($log_file)) {
+            if (file_put_contents($log_file, "") !== false) {
+                $feedback_message = "Sucesso: Log limpo com sucesso.";
+                log_message("Log limpo manualmente pelo usuário.");
+            } else {
+                $feedback_message = "Erro: Não foi possível limpar o log.";
+                log_message("Erro ao tentar limpar o log.");
+            }
+        } else {
+            $feedback_message = "Erro: Arquivo de log não encontrado.";
+            log_message("Tentativa de limpar log inexistente.");
+        }
     }
-
-    $config['cron']['item'][] = $cron_entry;
-    write_config("Adicionado agendamento de backup por e-mail.");
-    $feedback_message = "Sucesso: Agendamento de backup configurado.";
-    log_message($feedback_message);
 }
-?>
 
-<?php
+// ==================================================
+// ================ INTERFACE (HTML) ================
+// ==================================================
 $pgtitle = array("Services", "Email Backup");
 include("head.inc");
 ?>
 
-<div class="panel panel-default">
-    <div class="panel-heading"><h2 class="panel-title">Configuração de Backup por E-mail</h2></div>
-    <div class="panel-body">
-        <form method="post">
-            <!-- Campos para inserir informações -->
-            <input name="subject" type="text" class="form-control" placeholder="Assunto" required><br>
-            <input name="receiver_email" type="email" class="form-control" placeholder="E-mail do Destinatário" required><br>
-            <input name="username" type="text" class="form-control" placeholder="Usuário SMTP" required><br>
-            <input name="password" type="password" class="form-control" placeholder="Senha SMTP" required>
-            <small class="form-text text-muted">
-                <strong>Nota:</strong> Se você estiver usando o Gmail e a autenticação de dois fatores estiver ativada, será necessário gerar uma <a href="https://support.google.com/accounts/answer/185833" target="_blank">senha de aplicativo</a> para permitir o envio de e-mails.
-            </small>
-            <br>
-
-            <!-- Botão para criar arquivo, criptografar e executar -->
-            <button type="submit" name="action" value="process" class="btn btn-primary">Criar e Enviar Backup</button>
-        </form>
-    </div>
-</div>
-
 <!-- Mensagem de Feedback -->
-<?php if ($feedback_message): ?>
+<?php if (!empty($feedback_message)): ?>
 <div class="alert alert-info">
     <?= htmlspecialchars($feedback_message) ?>
 </div>
 <?php endif; ?>
 
-<!-- Botão para validar o arquivo config.xml -->
 <div class="panel panel-default">
-    <div class="panel-heading"><h2 class="panel-title">Validar Config.XML</h2></div>
-    <div class="panel-body">
-        <form method="post">
-            <button type="submit" name="action" value="validate" class="btn btn-warning">Validar Config.XML</button>
-        </form>
-    </div>
+  <div class="panel-heading"><h2 class="panel-title">Configuração de Backup por E-mail</h2></div>
+  <div class="panel-body">
+    <form method="post">
+      <input name="subject" type="text" class="form-control" placeholder="Assunto" required><br>
+      <input name="receiver_email" type="email" class="form-control" placeholder="E-mail do Destinatário" required><br>
+      <input name="username" type="text" class="form-control" placeholder="Usuário SMTP" required><br>
+      <input name="password" type="password" class="form-control" placeholder="Senha SMTP" required>
+      <small class="form-text text-muted">
+          <strong>Nota:</strong> Se você estiver usando o Gmail e a autenticação de dois fatores estiver ativada, será necessário gerar uma <a href="https://support.google.com/accounts/answer/185833" target="_blank">senha de aplicativo</a> para permitir o envio de e-mails.
+      </small>
+      <br>
+      <button type="submit" name="action" value="process" class="btn btn-primary">Criar e Enviar Backup</button>
+    </form>
+  </div>
 </div>
 
-<!-- Botão para testar envio de backup por e-mail -->
 <div class="panel panel-default">
-    <div class="panel-heading"><h2 class="panel-title">Testar Envio de Backup por E-mail</h2></div>
-    <div class="panel-body">
-        <form method="post">
-            <button type="submit" name="action" value="test_email" class="btn btn-info">Testar Envio de Backup</button>
-        </form>
-    </div>
+  <div class="panel-heading"><h2 class="panel-title">Validar Config.XML</h2></div>
+  <div class="panel-body">
+    <form method="post">
+      <button type="submit" name="action" value="validate" class="btn btn-warning">Validar Config.XML</button>
+    </form>
+  </div>
 </div>
 
-<!-- Nova seção para exibir os arquivos gerados -->
 <div class="panel panel-default">
-    <div class="panel-heading"><h2 class="panel-title">Arquivos Gerados</h2></div>
-    <div class="panel-body">
-        <table class="table table-striped">
-            <thead>
-                <tr>
-                    <th>Nome do Arquivo</th>
-                    <th>Ações</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php
-                // Diretório onde os backups são gerados
-                $backup_dir = "/root/";
-                $files = scandir($backup_dir);
-
-                foreach ($files as $file) {
-                    // Exibir apenas arquivos .pyc
-                    if (strpos($file, '.pyc') !== false) {
-                        echo "<tr>
-                                <td>" . htmlspecialchars($file) . "</td>
-                                <td>
-                                    <form method=\"post\" style=\"display:inline;\">
-                                        <input type=\"hidden\" name=\"delete_file\" value=\"" . htmlspecialchars($file) . "\">
-                                        <button type=\"submit\" class=\"btn btn-danger btn-sm\">Deletar</button>
-                                    </form>
-                                </td>
-                              </tr>";
-                    }
-                }
-                ?>
-            </tbody>
-        </table>
-    </div>
+  <div class="panel-heading"><h2 class="panel-title">Testar Envio de Backup por E-mail</h2></div>
+  <div class="panel-body">
+    <form method="post">
+      <button type="submit" name="action" value="test_email" class="btn btn-info">Testar Envio de Backup</button>
+    </form>
+  </div>
 </div>
 
-<!-- Nova seção para configurar agendamento -->
+<!-- Seção para exibir arquivos .pyc gerados -->
 <div class="panel panel-default">
-    <div class="panel-heading"><h2 class="panel-title">Agendamento de Backup</h2></div>
-    <div class="panel-body">
-        <form method="post">
-            <div class="form-group">
-                <label for="schedule_time">Agendar Backup Automático:</label>
-                <select name="schedule_time" class="form-control" onchange="toggleScheduleOptions(this.value)">
-                    <option value="hourly">De hora em hora</option>
-                    <option value="daily">Diariamente</option>
-                    <option value="weekly">Semanalmente</option>
-                    <option value="monthly">Mensalmente</option>
-                </select>
-            </div>
+  <div class="panel-heading"><h2 class="panel-title">Arquivos Gerados</h2></div>
+  <div class="panel-body">
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>Nome do Arquivo</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php
+        // Diretório onde os backups são gerados
+        $backup_dir = "/root/";
+        $files = scandir($backup_dir);
 
-            <div id="schedule_options" style="display:none;">
-                <div class="form-group">
-                    <label for="minute">Minuto:</label>
-                    <input name="minute" type="number" class="form-control" placeholder="0-59">
-                </div>
-                <div class="form-group">
-                    <label for="hour">Hora:</label>
-                    <input name="hour" type="number" class="form-control" placeholder="0-23">
-                </div>
-                <div class="form-group" id="day_option" style="display:none;">
-                    <label for="day">Dia:</label>
-                    <input name="day" type="number" class="form-control" placeholder="1-31">
-                </div>
-                <div class="form-group" id="weekday_option" style="display:none;">
-                    <label for="weekday">Dia da Semana (0-6, onde 0 é domingo):</label>
-                    <input name="weekday" type="number" class="form-control" placeholder="0-6">
-                </div>
-            </div>
+        foreach ($files as $file) {
+            // Exibir apenas arquivos .pyc
+            if (strpos($file, '.pyc') !== false) {
+                echo "<tr>
+                        <td>" . htmlspecialchars($file) . "</td>
+                        <td>
+                          <form method=\"post\" style=\"display:inline;\">
+                            <input type=\"hidden\" name=\"delete_file\" value=\"" . htmlspecialchars($file) . "\">
+                            <button type=\"submit\" class=\"btn btn-danger btn-sm\">Deletar</button>
+                          </form>
+                        </td>
+                      </tr>";
+            }
+        }
+        ?>
+      </tbody>
+    </table>
+  </div>
+</div>
 
-            <button type="submit" name="action" value="schedule" class="btn btn-success">Salvar Agendamento</button>
-        </form>
-    </div>
+<!-- Agendamento de Backup -->
+<div class="panel panel-default">
+  <div class="panel-heading"><h2 class="panel-title">Agendamento de Backup</h2></div>
+  <div class="panel-body">
+    <form method="post">
+      <div class="form-group">
+        <label for="schedule_time">Agendar Backup Automático:</label>
+        <select name="schedule_time" class="form-control" onchange="toggleScheduleOptions(this.value)">
+          <option value="hourly">De hora em hora</option>
+          <option value="daily">Diariamente</option>
+          <option value="weekly">Semanalmente</option>
+          <option value="monthly">Mensalmente</option>
+        </select>
+      </div>
+
+      <div id="schedule_options" style="display:none;">
+        <div class="form-group">
+          <label for="minute">Minuto (0-59):</label>
+          <input name="minute" type="number" class="form-control" placeholder="0-59">
+        </div>
+        <div class="form-group">
+          <label for="hour">Hora (0-23):</label>
+          <input name="hour" type="number" class="form-control" placeholder="0-23">
+        </div>
+        <div class="form-group" id="day_option" style="display:none;">
+          <label for="day">Dia (1-31):</label>
+          <input name="day" type="number" class="form-control" placeholder="1-31">
+        </div>
+        <div class="form-group" id="weekday_option" style="display:none;">
+          <label for="weekday">Dia da Semana (0=domingo - 6=sábado):</label>
+          <input name="weekday" type="number" class="form-control" placeholder="0-6">
+        </div>
+      </div>
+
+      <button type="submit" name="action" value="schedule" class="btn btn-success">Salvar Agendamento</button>
+    </form>
+  </div>
 </div>
 
 <script>
 function toggleScheduleOptions(value) {
     document.getElementById('schedule_options').style.display = 'block';
+    // Exibe ou esconde inputs dependendo do valor selecionado
     document.getElementById('day_option').style.display = (value === 'daily' || value === 'monthly') ? 'block' : 'none';
     document.getElementById('weekday_option').style.display = (value === 'weekly') ? 'block' : 'none';
 }
 </script>
 
-<!-- Nova seção para estatísticas -->
+<!-- Estatísticas de uso -->
 <div class="panel panel-default">
-    <div class="panel-heading"><h2 class="panel-title">Estatísticas de Uso</h2></div>
-    <div class="panel-body">
-        <?php
-        $backup_files = glob("/root/*.pyc");
-        $disk_free = disk_free_space("/root");
-        echo "Backups armazenados: " . count($backup_files) . "<br>";
-        echo "Espaço disponível: " . round($disk_free / (1024 * 1024 * 1024), 2) . " GB<br>";
-        ?>
-    </div>
+  <div class="panel-heading"><h2 class="panel-title">Estatísticas de Uso</h2></div>
+  <div class="panel-body">
+    <?php
+    $backup_files = glob("/root/*.pyc");
+    $disk_free = disk_free_space("/root");
+    echo "Backups armazenados: " . count($backup_files) . "<br>";
+    echo "Espaço disponível: " . round($disk_free / (1024 * 1024 * 1024), 2) . " GB<br>";
+    ?>
+  </div>
 </div>
 
-<!-- Nova seção para exibição do log -->
+<!-- Pré-visualização do Log -->
 <div class="panel panel-default">
-    <div class="panel-heading"><h2 class="panel-title">Pré-visualização do Log</h2></div>
-    <div class="panel-body">
-        <pre style="background-color: #f8f9fa; padding: 15px; border: 1px solid #ddd; height: 200px; overflow-y: scroll;">
-        <?php
-        $log_file = "/var/log/scriptbackupemail.log";
-        if (file_exists($log_file)) {
-            echo htmlspecialchars(file_get_contents($log_file));
-        } else {
-            echo "Arquivo de log não encontrado.";
-        }
-        ?>
-        </pre>
-    </div>
+  <div class="panel-heading"><h2 class="panel-title">Pré-visualização do Log</h2></div>
+  <div class="panel-body">
+    <pre style="background-color: #f8f9fa; padding: 15px; border: 1px solid #ddd; height: 200px; overflow-y: scroll;">
+<?php
+$log_file = "/var/log/scriptbackupemail.log";
+if (file_exists($log_file)) {
+    echo htmlspecialchars(file_get_contents($log_file));
+} else {
+    echo "Arquivo de log não encontrado.";
+}
+?>
+    </pre>
+  </div>
 </div>
+
+<!-- Limpar Log -->
+<div class="panel panel-default">
+  <div class="panel-heading"><h2 class="panel-title">Gerenciamento de Log</h2></div>
+  <div class="panel-body">
+    <form method="post" onsubmit="return confirm('Tem certeza que deseja limpar o log? Esta ação não pode ser desfeita.') && refreshPage()">
+      <button type="submit" name="action" value="clear_log" class="btn btn-danger">Limpar Log</button>
+    </form>
+  </div>
+</div>
+
+<script>
+function refreshPage() {
+    setTimeout(() => {
+        window.location.reload();
+    }, 500);
+    return true; 
+}
+</script>
 
 <?php
 include("foot.inc");
