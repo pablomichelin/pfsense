@@ -339,7 +339,7 @@ include("head.inc");
       </small>
       <br>
 
-      <button type="submit" name="action" value="process" class="btn btn-primary">Criar e Enviar Backup</button>
+      <button type="submit" name="action" value="process" class="btn btn-primary">Criar Arquivo</button>
     </form>
   </div>
 </div>
