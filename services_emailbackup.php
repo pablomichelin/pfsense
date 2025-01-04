@@ -320,7 +320,7 @@ include("head.inc");
           <strong>Nota:</strong> Ao utilizar a autenticação de dois fatores no Gmail, é necessário gerar uma <a href="https://support.google.com/accounts/answer/185833" target="_blank">senha de aplicativo</a> para permitir o envio de e-mails.
       </small>
       <br>
-      <button type="submit" name="action" value="process" class="btn btn-primary">Criar Backup</button>
+      <button type="submit" name="action" value="process" class="btn btn-primary">Criar Arquivo</button>
     </form>
   </div>
 </div>
