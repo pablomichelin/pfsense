@@ -35,4 +35,4 @@ chmod 644 /usr/local/www/services_emailbackup.php
 
 # 4) Mensagem final
 echo "Instalação concluída!"
-echo "Acesse 'Services > Email backup' na GUI do pfSense para usar o script."
+echo "Acesse 'Services > Email Backup' na GUI do pfSense para usar o script."
